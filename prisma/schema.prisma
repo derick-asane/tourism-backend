@@ -1,0 +1,268 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
+}
+
+/// Represents a user of the app, which could be a tourist, a guide, a site admin, or an app admin.
+model User {
+  id                 String              @id @default(uuid())
+  email              String              @unique
+  name               String
+  password           String // Hashed password
+  phoneNumber        String?
+  profilePicture     String?
+  role               Role                @default(TOURIST)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  touristBookings    Booking[]           @relation("TouristBookings")
+  reviews            Review[]
+  touristGuides      TouristGuide[]
+  siteAdmins         TouristicSiteAdmin[]
+  favorites          Favorite[]          // New relation to favorites
+
+  // New relationship for chat
+  sentMessages       Message[]           @relation("SenderMessages")
+  conversationsAsP1  Conversation[]      @relation("Participant1")
+  conversationsAsP2  Conversation[]      @relation("Participant2")
+
+  @@index([email])
+}
+
+
+/// Represents a tourist guide. A guide is also a user.
+model TouristGuide {
+  id                 String              @id @default(uuid())
+  userId             String              @unique
+  user               User                @relation(fields: [userId], references: [id])
+  bio                String?             @db.Text
+  languages          Json                // Stores a JSON array like `["English", "French"]`
+  pricePerHour       Decimal             @default(0) @db.Decimal(10, 2) // Changed from Float to Decimal for precision
+  rating             Float               @default(0) // Float is generally fine for ratings
+  numberOfReviews    Int                 @default(0)
+  availability       Json                // Stores complex availability data (e.g., object or array)
+
+  guideEvents        Event[]             @relation("GuideEvents")
+  bookings           Booking[]           @relation("GuideBookings")
+
+  @@index([userId])
+}
+
+/// Represents the administrator of a touristic site. A site admin is also a user.
+model TouristicSiteAdmin {
+  id          String         @id @default(uuid())
+  userId      String         @unique
+  user        User           @relation(fields: [userId], references: [id])
+  siteId      String         @unique
+  site        TouristicSite  @relation(fields: [siteId], references: [id])
+
+  siteEvents  Event[]        @relation("SiteEvents")
+
+  @@index([userId])
+  @@index([siteId])
+}
+
+/// Represents a touristic site, like a museum or monument.
+model TouristicSite {
+  id            String               @id @default(uuid())
+  name          String
+  description   String               @db.Text
+  location      String
+  latitude      Float?
+  longitude     Float?
+  category      String?
+  openingHours  String?
+  entryFee      Decimal?             @db.Decimal(10, 2) // Changed from Float to Decimal for precision
+
+  admin         TouristicSiteAdmin?
+  events        Event[]
+  images        TouristicSiteImage[] // Existing relation to the dedicated image model for sites
+  favorites     Favorite[]           // New relation to favorites
+
+  @@index([location])
+  @@fulltext([name, description])
+}
+
+// A new, dedicated model for storing images for a touristic site.
+model TouristicSiteImage {
+  id              String         @id @default(uuid())
+  url             String
+  touristicSiteId String
+  touristicSite   TouristicSite  @relation(fields: [touristicSiteId], references: [id])
+  createdAt       DateTime       @default(now())
+
+  @@index([touristicSiteId])
+}
+
+/// Represents a favorite touristic site for a user.
+model Favorite {
+  id              String         @id @default(uuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  touristicSiteId String
+  touristicSite   TouristicSite  @relation(fields: [touristicSiteId], references: [id], onDelete: Cascade)
+  createdAt       DateTime       @default(now())
+
+  @@unique([userId, touristicSiteId]) // Prevents duplicate favorites for the same user-site combination
+  @@index([userId])
+  @@index([touristicSiteId])
+  @@index([createdAt]) // For sorting favorites by when they were added
+}
+
+/// Represents an event that can be created by either a guide or a site admin.
+model Event {
+  id              String              @id @default(uuid())
+  title           String
+  description     String              @db.Text
+  price           Decimal             @db.Decimal(10, 2)
+  duration        Int
+  maxGroupSize    Int
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  
+  images          EventImage[]        // NEW: Relation to EventImage model
+
+  guideId         String?
+  guide           TouristGuide?       @relation("GuideEvents", fields: [guideId], references: [id])
+
+  siteAdminId     String?
+  siteAdmin       TouristicSiteAdmin? @relation("SiteEvents", fields: [siteAdminId], references: [id])
+
+  touristicSiteId String
+  touristicSite   TouristicSite       @relation(fields: [touristicSiteId], references: [id])
+
+  bookings        Booking[]
+
+  @@index([touristicSiteId])
+  @@index([guideId])
+  @@index([siteAdminId])
+}
+
+// NEW: A new, dedicated model for storing images for an event.
+model EventImage {
+  id        String    @id @default(uuid())
+  url       String
+  eventId   String
+  event     Event     @relation(fields: [eventId], references: [id])
+  createdAt DateTime  @default(now())
+
+  @@index([eventId])
+}
+
+/// Represents a booking for an event.
+model Booking {
+  id              String        @id @default(uuid())
+  touristId       String
+  tourist         User          @relation("TouristBookings", fields: [touristId], references: [id])
+  eventId         String
+  event           Event         @relation(fields: [eventId], references: [id])
+  guideId         String
+  guide           TouristGuide  @relation("GuideBookings", fields: [guideId], references: [id])
+  bookingDate     DateTime
+  numberOfPeople  Int
+  status          BookingStatus @default(PENDING)
+  totalPrice      Decimal       @db.Decimal(10, 2)
+  createdAt       DateTime      @default(now())
+
+  review          Review?
+  payment         Payment?      // A booking can have one associated payment
+
+  @@index([touristId])
+  @@index([eventId])
+  @@index([guideId])
+}
+
+/// Represents a review left by a tourist for a booking.
+model Review {
+  id              String   @id @default(uuid())
+  rating          Int // 1-5 star rating
+  comment         String?  @db.Text
+  createdAt       DateTime @default(now())
+  touristId       String
+  tourist         User     @relation(fields: [touristId], references: [id])
+  bookingId       String   @unique
+  booking         Booking  @relation(fields: [bookingId], references: [id])
+
+  @@index([touristId])
+}
+
+/// Represents a payment for a booking.
+model Payment {
+  id              String        @id @default(uuid())
+  bookingId       String        @unique // Each payment belongs to one booking, and each booking has one payment
+  booking         Booking       @relation(fields: [bookingId], references: [id])
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        // e.g., "USD", "EUR"
+  method          String?       // e.g., "Credit Card", "Mobile Money", "Bank Transfer", "Cash"
+  transactionId   String?       @unique // Unique ID from the payment gateway
+  status          PaymentStatus @default(PENDING)
+  paymentDate     DateTime      @default(now()) // When the payment was processed
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([bookingId])
+  @@index([transactionId])
+  @@index([status])
+}
+
+/// Represents a conversation between a tourist and a guide.
+model Conversation {
+  id              String   @id @default(uuid())
+  touristId       String
+  guideId         String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tourist         User     @relation("Participant1", fields: [touristId], references: [id])
+  guide           User     @relation("Participant2", fields: [guideId], references: [id])
+
+  messages        Message[]
+
+  @@unique([touristId, guideId])
+}
+
+/// Represents a message sent within a conversation.
+model Message {
+  id              String       @id @default(uuid())
+  text            String       @db.Text
+  senderId        String
+  conversationId  String
+  sentAt          DateTime     @default(now())
+  isRead          Boolean      @default(false)
+
+  sender          User         @relation("SenderMessages", fields: [senderId], references: [id])
+  conversation    Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId])
+}
+
+
+enum Role {
+  TOURIST
+  GUIDE
+  SITE_ADMIN
+  SUPER_ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELED
+}
+
+// New enum for payment status
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}

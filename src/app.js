@@ -66,6 +66,9 @@ try {
   console.log("events routes loaded");
   //   app.use("/favorite", require("./routes/favoriteRouter"));
   //   console.log("Favorite routes loaded");
+
+  app.use("/ai", require("./routes/aiRouter"));
+  console.log("✓ AI routes loaded");
 } catch (err) {
   console.error("Error loading user routes:", err.message);
   console.error("Stack:", err.stack);
